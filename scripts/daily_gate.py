@@ -1,11 +1,11 @@
-"""Decide whether a scheduled wxread run still needs to read today.
+"""Decide whether this wxread run still needs to read today.
 
 GitHub Actions may delay or drop a scheduled workflow without creating a run.
 The deploy workflow therefore has several Asia/Shanghai cron slots. This gate
 lets the first successful "Run deployment script" step of a Shanghai calendar
-day do the read, and tells later slots to skip.
-
-workflow_dispatch does not call this script. A manual run always reads.
+day do the read. Later schedules and a same-day workflow_dispatch skip, so a
+recovery dispatch cannot start a second read after one has already succeeded.
+A failed, cancelled, or still-incomplete read does not count.
 """
 
 from __future__ import annotations

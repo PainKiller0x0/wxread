@@ -59,12 +59,40 @@ class DailyGateTests(unittest.TestCase):
         self.assertTrue(decision.should_read)
 
     def test_reads_again_when_today_attempt_failed(self):
+        for conclusion in ("failure", "cancelled", "timed_out", "skipped", None):
+            decision = self.decide(
+                [{"id": 7, "created_at": "2026-11-23T17:20:00Z"}],
+                {7: jobs(7, "2026-11-23T17:40:00Z", conclusion=conclusion)},
+                "2026-11-23T21:30:00Z",
+            )
+            self.assertTrue(decision.should_read, conclusion)
+
+    def test_late_same_day_success_suppresses_the_next_slot(self):
+        # Historical starts landed around 08:44 Asia/Shanghai. A 09:29 slot
+        # must not read again once that attempt's script step has succeeded.
         decision = self.decide(
-            [{"id": 7, "created_at": "2026-11-23T17:20:00Z"}],
-            {7: jobs(7, "2026-11-23T17:40:00Z", conclusion="failure")},
-            "2026-11-23T21:30:00Z",
+            [{"id": 8, "created_at": "2026-11-24T00:44:00Z"}],
+            {8: jobs(8, "2026-11-24T01:46:00Z")},
+            "2026-11-24T01:50:00Z",
         )
-        self.assertTrue(decision.should_read)
+        self.assertFalse(decision.should_read)
+
+    def test_cross_midnight_delay_counts_on_the_finish_date(self):
+        # Created 20:00 Asia/Shanghai on Nov 23, script finished 00:30 on Nov 24.
+        decision = self.decide(
+            [{"id": 4, "created_at": "2026-11-23T12:00:00Z"}],
+            {4: jobs(4, "2026-11-23T16:30:00Z")},
+            "2026-11-23T17:10:00Z",
+        )
+        self.assertFalse(decision.should_read)
+        self.assertIn("2026-11-24", decision.reason)
+
+    def test_run_created_before_the_lookback_is_not_fetched_as_today(self):
+        created = datetime(2026, 11, 23, 2, 0, tzinfo=timezone.utc)  # 10:00 Shanghai Nov 23
+        day_start, day_end = daily_gate.shanghai_day_bounds(
+            datetime(2026, 11, 24, 1, 30, tzinfo=timezone.utc)
+        )
+        self.assertFalse(daily_gate.in_search_window(created, day_start, day_end))
 
     def test_ignores_the_current_run(self):
         decision = self.decide(
@@ -181,6 +209,12 @@ class DailyGateTests(unittest.TestCase):
             minute = cron.split()[0]
             self.assertNotEqual(minute, "0")
             self.assertNotEqual(minute, "*")
+        self.assertNotIn("github.event_name == 'schedule'", text)
+        self.assertIn("if: steps.daily.outputs.read == 'true'", text)
+        self.assertIn("actions: read", text)
+        self.assertIn("actions: write", text)
+        self.assertIn("cancel-in-progress: false", text)
+        self.assertIn('timezone: Asia/Shanghai', text)
 
 
 if __name__ == "__main__":

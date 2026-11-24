@@ -10,8 +10,8 @@ on:
     # GitHub 在高峰期会推迟 schedule，负载过高时直接丢弃且不留下 run。
     # 只有 01:07 一个时刻时，上海时间 2026-11-08、11-09、11-24 没有 schedule 运行，
     # 11-10 只有手动运行。下面的时刻都按 Asia/Shanghai，并错开整点。
-    # 同一上海日只有第一次成功阅读会执行 main.py，后续时刻由 daily gate 跳过。
-    # 手动 workflow_dispatch 不受这个限制。
+    # 同一上海日只有第一次成功阅读会执行 main.py。之后的定时触发和
+    # workflow_dispatch 都由 daily gate 跳过，避免补跑和迟到的 cron 各读一次。
     - cron: '7 1 * * *'    # 01:07
       timezone: Asia/Shanghai
     - cron: '17 5 * * *'   # 05:17
@@ -49,19 +49,18 @@ jobs:
 
     - name: Decide whether this Shanghai day still needs a read
       id: daily
-      if: github.event_name == 'schedule'
       env:
         GH_TOKEN: ${{ github.token }}
       run: python scripts/daily_gate.py
 
     - name: Install dependencies
-      if: github.event_name != 'schedule' || steps.daily.outputs.read == 'true'
+      if: steps.daily.outputs.read == 'true'
       run: |
         python -m pip install --upgrade pip
         pip install certifi==2024.8.30 charset-normalizer==3.4.0 idna==3.10 requests==2.32.3 urllib3==2.2.3
 
     - name: Run deployment script
-      if: github.event_name != 'schedule' || steps.daily.outputs.read == 'true'
+      if: steps.daily.outputs.read == 'true'
       env:
         WXREAD_CURL_BASH: ${{ secrets.WXREAD_CURL_BASH }}
         PUSH_METHOD: ${{ secrets.PUSH_METHOD }}
